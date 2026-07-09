@@ -906,6 +906,7 @@ elif page == "📍 Lokasi & Channel":
                     }
                 )
                 hover_tmpl = "<b>%{label}</b><br>%{value:.1f}%<extra></extra>"
+                txt_tmpl = "<b>%{label}</b><br>%{percent:.1%}"
             else:
                 # Approximate: use percentages * revenue
                 chd = pd.DataFrame(
@@ -919,6 +920,7 @@ elif page == "📍 Lokasi & Channel":
                     }
                 )
                 hover_tmpl = "<b>%{label}</b><br>Rp %{value:,.0f}<extra></extra>"
+                txt_tmpl = "<b>%{label}</b><br>Rp %{value:.2s}"
 
             fig2 = px.pie(
                 chd,
@@ -929,7 +931,7 @@ elif page == "📍 Lokasi & Channel":
             )
             fig2.update_traces(
                 textposition="inside",
-                textinfo="percent+label",
+                texttemplate=txt_tmpl,
                 textfont=dict(size=13, color="#FFFFFF"),
                 hovertemplate=hover_tmpl,
             )
@@ -1109,7 +1111,7 @@ elif page == "⚡ Efisiensi & Promo":
                 )
                 cat_fig.update_traces(
                     textposition="inside",
-                    textinfo="percent+label",
+                    texttemplate="<b>%{label}</b><br>%{percent:.1%}",
                     textfont=dict(size=11, color="#FFFFFF"),
                     hovertemplate="<b>%{label}</b><br>%{value:.1f}%<extra></extra>",
                 )
@@ -1130,7 +1132,7 @@ elif page == "⚡ Efisiensi & Promo":
                 )
                 cat_fig.update_traces(
                     textposition="inside",
-                    textinfo="percent+label",
+                    texttemplate="<b>%{label}</b><br>Rp %{value:.2s}",
                     textfont=dict(size=11, color="#FFFFFF"),
                     hovertemplate="<b>%{label}</b><br>Rp %{value:,.0f}<extra></extra>",
                 )
