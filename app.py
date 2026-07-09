@@ -198,16 +198,27 @@ div[data-baseweb="select"] input::placeholder {
     color: var(--muted) !important;
 }
 /* Dropdown menu items */
-ul[data-baseweb="menu"] li,
-ul[data-baseweb="menu"] li *,
-div[data-baseweb="popover"] ul li,
-div[data-baseweb="popover"] ul li span {
+div[data-baseweb="popover"],
+div[data-baseweb="popover"] * {
     color: var(--text) !important;
-    background: #fff !important;
+}
+div[role="listbox"] li,
+div[role="listbox"] li * {
+    color: var(--text) !important;
+    background-color: #ffffff !important;
+}
+div[role="listbox"] li:hover,
+div[role="listbox"] li:hover * {
+    background-color: var(--cream) !important;
+}
+ul[data-baseweb="menu"] li,
+ul[data-baseweb="menu"] li * {
+    color: var(--text) !important;
+    background-color: #ffffff !important;
 }
 ul[data-baseweb="menu"] li:hover,
 ul[data-baseweb="menu"] li:hover * {
-    background: var(--cream) !important;
+    background-color: var(--cream) !important;
 }
 /* Dropdown arrow icon */
 div[data-baseweb="select"] svg {
