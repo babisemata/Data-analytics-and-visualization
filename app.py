@@ -1,335 +1,994 @@
 """
 KopiSeru — Executive Dashboard
 ================================
-Layout: No-scroll · 2 charts per page · Minimalist · Sidebar navigation
-Reference: Executive Summary Focus
+1-page executive dashboard with:
+- Sidebar that works properly
+- KPI row at top
+- Page selector (radio pills) below KPI
+- Per-chart filters aligned on the right of each chart title
+- 2 charts per page in card containers
+- Insight notes below each chart
+- Coffee-themed, clean, executive aesthetic
 """
-import streamlit as st
-import pandas as pd
-import plotly.graph_objects as go
-import plotly.express as px
-import os, base64
 
-# ═══════════════════════════════════════════════════════════
-#  PAGE CONFIG
-# ═══════════════════════════════════════════════════════════
+import base64
+from pathlib import Path
+
+import pandas as pd
+import streamlit as st
+import plotly.express as px
+import plotly.graph_objects as go
+
+# -------------------------------------------------------------------
+# Page config
+# -------------------------------------------------------------------
 st.set_page_config(
     page_title="KopiSeru — Executive Dashboard",
     page_icon="☕",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="collapsed",
 )
 
-# ═══════════════════════════════════════════════════════════
-#  HELPERS
-# ═══════════════════════════════════════════════════════════
-@st.cache_data
-def load_data():
-    d = os.path.dirname(os.path.abspath(__file__))
-    df = pd.read_csv(os.path.join(d, "dataset_final.csv"))
-    df["date"] = pd.to_datetime(df["date"])
+# -------------------------------------------------------------------
+# Helpers
+# -------------------------------------------------------------------
+BASE_DIR = Path(__file__).resolve().parent
+DATA_PATH = BASE_DIR / "dataset_final.csv"
+ASSET_DIR = BASE_DIR / "asset"
+
+
+@st.cache_data(show_spinner=False)
+def load_data() -> pd.DataFrame:
+    df = pd.read_csv(DATA_PATH)
+    df["date"] = pd.to_datetime(df["date"], errors="coerce")
+    df = df.dropna(subset=["date"]).copy()
+
+    # Core derived columns
     df["profit"] = df["total_revenue"] - df["operating_cost"]
+    df["profit_margin"] = (
+        (df["profit"] / df["total_revenue"]).replace([pd.NA, pd.NaT], 0) * 100
+    )
     df["year"] = df["date"].dt.year
     df["month"] = df["date"].dt.to_period("M").dt.to_timestamp()
+    df["month_name"] = df["date"].dt.strftime("%b %Y")
     return df
 
-def img_b64(fn):
-    p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "asset", fn)
-    if os.path.exists(p):
-        with open(p, "rb") as f:
-            return f"data:image/png;base64,{base64.b64encode(f.read()).decode()}"
-    return ""
 
-def fmt(v):
-    if abs(v) >= 1e12: return f"Rp {v/1e12:.2f} Triliun"
-    if abs(v) >= 1e9: return f"Rp {v/1e9:.2f} Miliar"
-    if abs(v) >= 1e6: return f"Rp {v/1e6:.0f} Juta"
+def img_b64(filename: str) -> str:
+    p = ASSET_DIR / filename
+    if not p.exists():
+        return ""
+    with open(p, "rb") as f:
+        return f"data:image/png;base64,{base64.b64encode(f.read()).decode()}"
+
+
+def fmt_rp(v: float) -> str:
+    v = float(v)
+    if abs(v) >= 1e12:
+        return f"Rp {v/1e12:.2f} Triliun"
+    if abs(v) >= 1e9:
+        return f"Rp {v/1e9:.2f} Miliar"
+    if abs(v) >= 1e6:
+        return f"Rp {v/1e6:.2f} Juta"
+    if abs(v) >= 1e3:
+        return f"Rp {v/1e3:.0f} Ribu"
     return f"Rp {v:,.0f}"
+
+
+def pct(v: float) -> str:
+    return f"{v:.1f}%"
+
 
 DF = load_data()
 
-# Chart constants (Height greatly increased since we only have 1 row of charts)
-CH = 320 
-LAYOUT_BASE = dict(
+# -------------------------------------------------------------------
+# CSS — Coffee Executive Theme
+# -------------------------------------------------------------------
+st.markdown(
+    r"""
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+:root {
+    --bg:     #F5F1EB;
+    --card:   #FFFFFF;
+    --text:   #2A1A14;
+    --muted:  #7C6154;
+    --line:   #E9DED6;
+    --brown:  #5C3A2E;
+    --cream:  #FBF7F2;
+    --shadow: 0 4px 18px rgba(63,42,31,.07);
+}
+
+/* ── Base ───────────────────────────────────────── */
+html, body, .stApp, .main, .block-container {
+    font-family: 'Plus Jakarta Sans', sans-serif !important;
+    background: var(--bg) !important;
+}
+
+/* Allow page to scroll naturally inside the viewport */
+.stApp, .main {
+    overflow-y: auto !important;
+}
+.block-container {
+    max-width: 1440px !important;
+    padding: 0.6rem 2.5rem 1rem 2.5rem !important;
+}
+div[data-testid="stVerticalBlock"] { gap: 0.7rem !important; }
+div[data-testid="stHorizontalBlock"] { gap: 1.4rem !important; }
+
+/* ── Header bar ─────────────────────────────────── */
+/* Keep sidebar toggle visible by NOT hiding the header entirely.
+   Instead we just remove the extra toolbar/menu items. */
+#MainMenu, footer, [data-testid="stToolbar"] { display: none !important; }
+header[data-testid="stHeader"] {
+    background: transparent !important;
+    backdrop-filter: none !important;
+}
+
+/* ── Sidebar ────────────────────────────────────── */
+section[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #3F261F 0%, #4E342E 100%) !important;
+    border-right: none !important;
+    z-index: 999 !important;
+}
+section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {
+    padding-top: 0.6rem !important;
+}
+section[data-testid="stSidebar"] p,
+section[data-testid="stSidebar"] label,
+section[data-testid="stSidebar"] span {
+    color: #F1E7DD !important;
+    font-size: .85rem !important;
+}
+
+/* Sidebar collapse / expand button — black, pinned top-right of sidebar */
+button[data-testid="stBaseButton-headerNoPadding"],
+[data-testid="collapsedControl"] {
+    color: #000000 !important;
+    z-index: 9999 !important;
+}
+[data-testid="collapsedControl"] svg {
+    fill: #000000 !important;
+    stroke: #000000 !important;
+}
+/* When sidebar is open, put close button at top-right inside sidebar */
+section[data-testid="stSidebar"] button[data-testid="stBaseButton-headerNoPadding"] {
+    position: absolute !important;
+    top: 10px !important;
+    right: 10px !important;
+    left: auto !important;
+    color: #F1E7DD !important;
+    z-index: 10000 !important;
+}
+section[data-testid="stSidebar"] button[data-testid="stBaseButton-headerNoPadding"] svg {
+    fill: #F1E7DD !important;
+    stroke: #F1E7DD !important;
+}
+
+.sidebar-card {
+    background: rgba(255,255,255,.10);
+    border: 1px solid rgba(255,255,255,.10);
+    border-radius: 14px;
+    padding: 12px 14px;
+}
+
+/* ── Typography ─────────────────────────────────── */
+.hero-title {
+    color: var(--text);
+    font-size: 1.55rem;
+    font-weight: 800;
+    margin: 0;
+    line-height: 1.15;
+}
+.hero-sub {
+    color: var(--muted);
+    font-size: 0.92rem;
+    font-weight: 600;
+    margin: 2px 0 0 0;
+}
+
+/* ── Selectbox / Dropdown fixes ─────────────────── */
+/* Hide labels to keep compact look */
+.stSelectbox label,
+.stMultiSelect label {
+    display: none !important;
+}
+
+/* Outer container */
+.stSelectbox > div > div,
+.stMultiSelect > div > div {
+    min-height: 36px !important;
+    max-height: 38px !important;
+    border-radius: 10px !important;
+    border: 1px solid var(--line) !important;
+    background: #FFFFFF !important;
+    box-shadow: none !important;
+    font-size: .85rem !important;
+    padding: 0 !important;
+}
+
+/* ★ CRITICAL — force all selectbox text to dark brown */
+div[data-baseweb="select"] {
+    color: var(--text) !important;
+}
+div[data-baseweb="select"] * {
+    color: var(--text) !important;
+}
+div[data-baseweb="select"] .css-1dimb5e-singleValue,
+div[data-baseweb="select"] [data-testid="stMarkdownContainer"] p,
+div[data-baseweb="select"] span,
+div[data-baseweb="select"] div {
+    color: var(--text) !important;
+}
+/* Placeholder */
+div[data-baseweb="select"] [data-baseweb="tag"],
+div[data-baseweb="select"] input::placeholder {
+    color: var(--muted) !important;
+}
+/* Dropdown menu items */
+ul[data-baseweb="menu"] li,
+ul[data-baseweb="menu"] li *,
+div[data-baseweb="popover"] ul li,
+div[data-baseweb="popover"] ul li span {
+    color: var(--text) !important;
+    background: #fff !important;
+}
+ul[data-baseweb="menu"] li:hover,
+ul[data-baseweb="menu"] li:hover * {
+    background: var(--cream) !important;
+}
+/* Dropdown arrow icon */
+div[data-baseweb="select"] svg {
+    fill: var(--muted) !important;
+}
+
+/* ── Radio pills (page selector) ────────────────── */
+div[data-testid="stRadio"] {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 8px 14px;
+    box-shadow: var(--shadow);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    margin: 0 auto;
+    width: fit-content;
+}
+.stRadio > div {
+    gap: .45rem !important;
+    background: transparent !important;
+    justify-content: center !important;
+}
+.stRadio label {
+    padding: .45rem 1.15rem !important;
+    border-radius: 999px !important;
+    border: 1px solid var(--line) !important;
+    background: rgba(255,255,255,.9) !important;
+    margin: 0 !important;
+    font-size: .86rem !important;
+    font-weight: 700 !important;
+    transition: all .2s ease !important;
+    cursor: pointer !important;
+}
+.stRadio label p {
+    color: #3E2A1E !important;
+    font-weight: 700 !important;
+}
+.stRadio label[data-checked="true"] {
+    background: var(--brown) !important;
+    border-color: var(--brown) !important;
+    box-shadow: 0 2px 8px rgba(92,58,46,.25) !important;
+}
+.stRadio label[data-checked="true"] p {
+    color: #fff !important;
+}
+
+/* ── KPI cards ──────────────────────────────────── */
+.kpi {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 18px 24px;
+    height: 120px;
+    box-shadow: var(--shadow);
+    position: relative;
+    text-align: left;
+    transition: box-shadow .2s ease;
+}
+.kpi:hover {
+    box-shadow: 0 6px 24px rgba(63,42,31,.12);
+}
+.kpi-t {
+    color: var(--muted);
+    font-size: .72rem;
+    font-weight: 800;
+    margin: 0;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+}
+.kpi-v {
+    color: var(--text);
+    font-size: 1.5rem;
+    font-weight: 800;
+    margin: 6px 0 0 0;
+    line-height: 1.05;
+}
+.kpi-s {
+    color: var(--muted);
+    font-size: .73rem;
+    font-weight: 600;
+    margin: 6px 0 0 0;
+}
+.kpi-i {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    width: 34px;
+    height: 34px;
+    opacity: .88;
+}
+
+/* ── Chart card container — style Streamlit's native bordered container ── */
+div[data-testid="stVerticalBlockBorderWrapper"] {
+    background: var(--card) !important;
+    border: 1px solid var(--line) !important;
+    border-radius: 16px !important;
+    box-shadow: var(--shadow) !important;
+    padding: 16px 18px 12px 18px !important;
+}
+div[data-testid="stVerticalBlockBorderWrapper"] > div {
+    background: transparent !important;
+}
+.chart-title {
+    color: var(--text);
+    font-size: 1.02rem;
+    font-weight: 800;
+    margin: 0;
+    line-height: 1.2;
+}
+.chart-note {
+    background: var(--cream);
+    border: 1px solid #F0E6DE;
+    border-radius: 10px;
+    padding: 9px 14px;
+    margin-top: 6px;
+    color: var(--brown);
+    font-size: .8rem;
+    font-weight: 600;
+    line-height: 1.4;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    text-align: center;
+}
+
+/* ── Plotly tweaks ──────────────────────────────── */
+.js-plotly-plot .plotly .modebar { display: none !important; }
+
+/* ── Global filter badge ────────────────────────── */
+.filter-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 6px 14px;
+    font-size: .82rem;
+    font-weight: 700;
+    color: var(--brown);
+    box-shadow: var(--shadow);
+}
+</style>
+""",
+    unsafe_allow_html=True,
+)
+
+# -------------------------------------------------------------------
+# Image assets
+# -------------------------------------------------------------------
+logo_b64 = img_b64("logo.png")
+money_b64 = img_b64("money_ic.png")
+people_b64 = img_b64("ic_people.png")
+line_b64 = img_b64("icons_line-up.png")
+pie_b64 = img_b64("icon-pie-chart.png")
+
+# -------------------------------------------------------------------
+# Sidebar
+# -------------------------------------------------------------------
+with st.sidebar:
+    if logo_b64:
+        st.markdown(
+            f'<div style="text-align:center; padding: 6px 0 14px 0;">'
+            f'<img src="{logo_b64}" style="max-width: 130px; opacity:.95;"></div>',
+            unsafe_allow_html=True,
+        )
+
+    st.markdown(
+        """
+        <div class="sidebar-card" style="margin: 0 8px 10px 8px;">
+            <div style="font-weight:800; color:#F3E7DA; margin-bottom:6px;">KOPISERU</div>
+            <div style="font-size:.85rem; line-height:1.45; color:#E8DCCF;">
+                Dashboard executive ringkas untuk membaca pertumbuhan,
+                lokasi, channel, efisiensi, dan promo.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        f"""
+        <div class="sidebar-card" style="margin: 0 8px 10px 8px;">
+            <div style="font-size:.75rem; color:#D8BFA6; font-weight:800;">DATA TERAKHIR DIPERBARUI</div>
+            <div style="font-size:.9rem; color:#FFF; font-weight:700; margin-top:6px;">
+                {DF["date"].max().strftime("%d %b %Y")}
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    st.markdown(
+        """
+        <div class="sidebar-card" style="margin: 0 8px;">
+            <div style="font-size:.75rem; color:#D8BFA6; font-weight:800;">NAVIGASI</div>
+            <div style="font-size:.85rem; color:#FFF; font-weight:700; margin-top:8px; line-height:1.8;">
+                • Dashboard Utama<br>
+                • Pengaturan
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+# -------------------------------------------------------------------
+# Header row
+# -------------------------------------------------------------------
+h_left, h_right = st.columns([0.55, 0.45], vertical_alignment="bottom")
+
+with h_left:
+    st.markdown(
+        '<div class="hero-title">KopiSeru Executive Board</div>'
+        '<div class="hero-sub">Ringkasan Performa & Profitabilitas Bisnis</div>',
+        unsafe_allow_html=True,
+    )
+
+with h_right:
+    # Inline filter — branch selector + period badge
+    f1, f2 = st.columns([0.55, 0.45], vertical_alignment="center")
+    with f1:
+        st.markdown(
+            '<div style="text-align:right; font-size:.82rem; color:#5C3A2E; font-weight:700;">'
+            "Data model: 2021–2023<br>"
+            '<span style="color:#7C6154; font-weight:600;">Filter Cabang:</span></div>',
+            unsafe_allow_html=True,
+        )
+    with f2:
+        branches = ["Semua Cabang"] + sorted(DF["branch_name"].unique().tolist())
+        global_branch = st.selectbox(
+            "Global Branch",
+            branches,
+            key="global_branch",
+            label_visibility="collapsed",
+        )
+
+# Apply global filter
+filtered_df = DF.copy()
+if global_branch != "Semua Cabang":
+    filtered_df = filtered_df[filtered_df["branch_name"] == global_branch]
+
+# -------------------------------------------------------------------
+# KPI Row
+# -------------------------------------------------------------------
+total_revenue = float(filtered_df["total_revenue"].sum())
+total_profit = float(
+    (filtered_df["total_revenue"] - filtered_df["operating_cost"]).sum()
+)
+npm = (total_profit / total_revenue * 100) if total_revenue else 0.0
+total_transactions = float(filtered_df["total_transactions"].sum())
+
+latest_year = int(DF["year"].max())
+prev_year = latest_year - 1
+
+
+def year_sum(df, col, year):
+    return float(df.loc[df["year"] == year, col].sum())
+
+
+prev_rev = year_sum(filtered_df, "total_revenue", prev_year)
+prev_prof = float(
+    (
+        filtered_df.loc[filtered_df["year"] == prev_year, "total_revenue"]
+        - filtered_df.loc[filtered_df["year"] == prev_year, "operating_cost"]
+    ).sum()
+)
+prev_trx = year_sum(filtered_df, "total_transactions", prev_year)
+prev_npm = (prev_prof / prev_rev * 100) if prev_rev else npm
+
+
+def delta_text(curr, prev, is_pct=False):
+    if prev == 0:
+        return None
+    if is_pct:
+        diff = curr - prev
+        return f"{diff:+.1f} pt"
+    diff = (curr - prev) / prev * 100
+    return f"{diff:+.1f}%"
+
+
+d_rev = delta_text(total_revenue, prev_rev)
+d_prof = delta_text(total_profit, prev_prof)
+d_trx = delta_text(total_transactions, prev_trx)
+d_npm = delta_text(npm, prev_npm, is_pct=True)
+
+
+def kpi_html(title, value, subtitle, icon_b64_src, delta=None):
+    delta_html = ""
+    if delta:
+        delta_html = (
+            '<div class="kpi-s" style="color:#1B8F2C; font-weight:800;">'
+            f'▲ {delta} <span style="color:#7C6154; font-weight:600;">'
+            "vs tahun sebelumnya</span></div>"
+        )
+    else:
+        delta_html = f'<div class="kpi-s">{subtitle}</div>'
+    icon_tag = (
+        f'<img class="kpi-i" src="{icon_b64_src}">' if icon_b64_src else ""
+    )
+    return f"""<div class="kpi">
+<div class="kpi-t">{title}</div>
+<div class="kpi-v">{value}</div>
+{delta_html}
+{icon_tag}
+</div>"""
+
+
+trx_fmt = (
+    f"{total_transactions/1e6:.2f} Jt"
+    if total_transactions >= 1e6
+    else f"{total_transactions:,.0f}"
+)
+
+kpi_row_html = f"""<div style="display:flex; gap:1.6rem; width:100%;">
+{kpi_html("Total Pendapatan", fmt_rp(total_revenue), "Omzet kotor", money_b64, d_rev)}
+{kpi_html("Laba Bersih", fmt_rp(total_profit), "Keuntungan setelah biaya", line_b64, d_prof)}
+{kpi_html("Net Profit Margin", pct(npm), "Rasio efisiensi profit", pie_b64, d_npm)}
+{kpi_html("Total Transaksi", trx_fmt, "Indikator volume", people_b64, d_trx)}
+</div>"""
+
+st.markdown(kpi_row_html, unsafe_allow_html=True)
+
+# -------------------------------------------------------------------
+# Page selector
+# -------------------------------------------------------------------
+st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
+page = st.radio(
+    "Pilih tampilan",
+    ["☕ Pertumbuhan", "📍 Lokasi & Channel", "⚡ Efisiensi & Promo"],
+    horizontal=True,
+    label_visibility="collapsed",
+)
+st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
+
+# -------------------------------------------------------------------
+# Plot defaults
+# -------------------------------------------------------------------
+CH_H = 330
+LAYOUT = dict(
     template="plotly_white",
     margin=dict(l=5, r=5, t=10, b=5),
     paper_bgcolor="rgba(0,0,0,0)",
-    plot_bgcolor="rgba(0,0,0,0)",
-    font=dict(family="Plus Jakarta Sans", color="#4E342E", size=12),
-    hoverlabel=dict(bgcolor="#FFF", bordercolor="#C49A6C", font=dict(color="#4E342E", size=13)),
+    plot_bgcolor="rgba(255,255,255,0)",
+    font=dict(family="Plus Jakarta Sans", color="#4A352C", size=12),
+    hoverlabel=dict(
+        bgcolor="#FFFFFF",
+        bordercolor="#C49A6C",
+        font=dict(family="Plus Jakarta Sans", color="#4A352C", size=13),
+    ),
 )
 CFG = dict(displayModeBar=False)
-PAL = ["#4E342E", "#8B5A2B", "#C49A6C", "#D7CCC8", "#EFEBE9", "#A1887F"]
+palette = ["#5C3A2E", "#8B5A2B", "#C49A6C", "#D7CCC8", "#A1887F", "#E6DCCF"]
 
-# ═══════════════════════════════════════════════════════════
-#  CSS
-# ═══════════════════════════════════════════════════════════
-st.markdown("""<style>
-@import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
 
-/* ── NO-SCROLL ── */
-html,body,.stApp,.main,.block-container{
-    overflow:hidden!important;max-height:100vh!important;
-    font-family:'Plus Jakarta Sans',sans-serif!important;
-}
-.block-container{padding:1rem 2rem 0 2rem!important}
-div[data-testid="stVerticalBlock"]>div{gap:0.4rem!important}
-div[data-testid="stHorizontalBlock"]{gap:1rem!important}
-
-/* Keep header transparent so sidebar toggle works, hide clutter */
-[data-testid="stHeader"] {background:transparent!important; height:0px!important}
-#MainMenu,footer,[data-testid="stToolbar"]{display:none!important}
-.stApp{background:#F5F2ED!important}
-
-/* ── SIDEBAR ── */
-section[data-testid="stSidebar"]{background:linear-gradient(180deg,#3E2723,#4E342E);border:none}
-section[data-testid="stSidebar"] [data-testid="stSidebarContent"]{padding-top:1rem}
-section[data-testid="stSidebar"] p,
-section[data-testid="stSidebar"] label,
-section[data-testid="stSidebar"] span{color:#D7C8B8!important;font-size:0.9rem!important}
-section[data-testid="stSidebar"] hr{border-color:rgba(196,154,108,0.2)!important;margin:10px 0!important}
-section[data-testid="stSidebar"] .stRadio>div{flex-direction:column;gap:4px;background:transparent;border:none;padding:0}
-section[data-testid="stSidebar"] .stRadio label{padding:10px 16px;border-radius:8px;transition:0.2s}
-section[data-testid="stSidebar"] .stRadio label:hover{background:rgba(196,154,108,0.15)}
-section[data-testid="stSidebar"] .stRadio label[data-checked="true"]{background:#C49A6C!important}
-section[data-testid="stSidebar"] .stRadio label[data-checked="true"] p{color:#FFF!important;font-weight:700!important}
-section[data-testid="stSidebar"] .stRadio label>div:first-child{display:none}
-
-/* ── COMPACT WIDGETS (Global Filters) ── */
-.stSelectbox label{font-size:0.75rem!important;color:#8D6E53!important;margin-bottom:0px!important;min-height:0!important}
-.stSelectbox>div>div{min-height:36px!important;font-size:0.85rem!important;border-radius:8px!important;}
-.stSelectbox{margin-bottom:0!important}
-
-/* ── KPI ── */
-.kpi{background:#FFF;border-radius:12px;padding:16px 20px;border:1px solid #EDE8E1;position:relative;height:95px;box-shadow:0 4px 10px rgba(0,0,0,0.03)}
-.kpi-l{font-size:0.75rem;color:#8D6E53;font-weight:600;text-transform:uppercase;letter-spacing:0.5px;margin:0}
-.kpi-v{font-size:1.6rem;font-weight:800;color:#2C1A12;margin:2px 0 0;line-height:1.1}
-.kpi-d{font-size:0.7rem;font-weight:700;margin:4px 0 0}
-.kpi-d.u{color:#2E7D32}.kpi-d.d{color:#C62828}
-.kpi-i{position:absolute;top:16px;right:16px;width:32px;height:32px;opacity:0.8}
-
-/* ── CHART CARD ── */
-.cc{background:#FFF;border-radius:12px;padding:16px 20px;border:1px solid #EDE8E1;box-shadow:0 4px 10px rgba(0,0,0,0.03)}
-.cc h4{font-size:0.95rem;font-weight:800;color:#2C1A12;margin:0 0 10px}
-.cc-ins{font-size:0.75rem;color:#6D4C41;margin:12px 0 0;padding:8px 12px;background:#FDF8F3;border-radius:6px;line-height:1.4}
-
-/* ── TABS (as pagination) ── */
-.stTabs [data-baseweb="tab-list"]{gap:0;background:#FFF;border-radius:10px;border:1px solid #EDE8E1;padding:4px;margin-top:8px}
-.stTabs [data-baseweb="tab"]{padding:8px 24px;border-radius:8px;font-weight:700;font-size:0.85rem;color:#8D6E53}
-.stTabs [aria-selected="true"]{background:#5D4037!important;color:#FFF!important;border-radius:8px}
-.stTabs [data-baseweb="tab-panel"]{padding:0px!important}
-.stTabs [data-baseweb="tab-border"]{display:none!important}
-.stTabs [data-baseweb="tab-highlight"]{display:none!important}
-
-</style>""", unsafe_allow_html=True)
-
-# Icons
-ic = {k: img_b64(v) for k, v in {
-    "money": "money_ic.png", "ppl": "ic_people.png",
-    "pie": "icon-pie-chart.png", "line": "icons_line-up.png",
-    "logo": "logo.png"
-}.items()}
-
-# ═══════════════════════════════════════════════════════════
-#  SIDEBAR
-# ═══════════════════════════════════════════════════════════
-with st.sidebar:
-    if ic["logo"]:
-        st.markdown(
-            f'<div style="text-align:center;padding:10px 0">'
-            f'<img src="{ic["logo"]}" style="max-width:130px"></div>',
-            unsafe_allow_html=True)
-    st.markdown("---")
-    st.radio("Nav", [
-        "📊  Dashboard Utama", 
-        "⚙️  Pengaturan"
-    ], label_visibility="collapsed")
-    st.markdown("---")
+def close_card(note: str):
+    """Render insight note at the bottom of a chart card."""
     st.markdown(
-        f'<div style="background:rgba(0,0,0,0.15);padding:12px 16px;'
-        f'border-radius:10px;margin:0 12px">'
-        f'<p style="margin:0;font-size:0.75rem!important;color:#C49A6C!important">'
-        f'Data terakhir diperbarui:</p>'
-        f'<p style="margin:4px 0 0;font-size:0.85rem!important;font-weight:700;'
-        f'color:#E8DDD3!important">{DF["date"].max().strftime("%d %b %Y")}</p>'
-        f'</div>', unsafe_allow_html=True)
+        f'<div class="chart-note">{note}</div>',
+        unsafe_allow_html=True,
+    )
 
-# ═══════════════════════════════════════════════════════════
-#  HEADER
-# ═══════════════════════════════════════════════════════════
-st.markdown(
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
-    '<div>'
-    '<h2 style="margin:0;font-size:1.4rem;font-weight:800;color:#2C1A12">'
-    'KopiSeru Executive Board</h2>'
-    '<p style="margin:2px 0 0;font-size:0.85rem;color:#8D6E53;font-weight:500">'
-    'Ringkasan Kinerja & Profitabilitas Bisnis</p>'
-    '</div></div>', unsafe_allow_html=True)
 
-# ═══════════════════════════════════════════════════════════
-#  GLOBAL FILTER BAR
-# ═══════════════════════════════════════════════════════════
-yrs = sorted(DF["year"].unique())
-yr_all_label = f"Jan {min(yrs)} - Des {max(yrs)}"
-yr_options = [yr_all_label] + [str(y) for y in yrs]
+def card_header(title, filter_ratio=0.30):
+    """Render chart title on the left & return the right column for the filter."""
+    left_col, right_col = st.columns(
+        [1 - filter_ratio, filter_ratio], vertical_alignment="center"
+    )
+    with left_col:
+        st.markdown(
+            f'<div class="chart-title">{title}</div>',
+            unsafe_allow_html=True,
+        )
+    return right_col
 
-gf1, gf2, gf3, gf4 = st.columns(4)
-with gf1: sel_yr = st.selectbox("📅 Rentang Waktu", yr_options, key="g_yr")
-with gf2: sel_br = st.selectbox("🏢 Cabang", ["Semua Cabang"] + sorted(DF["branch_name"].unique().tolist()), key="g_br")
-with gf3: sel_tp = st.selectbox("📍 Tipe Lokasi", ["Semua Tipe"] + sorted(DF["branch_type"].unique().tolist()), key="g_tp")
-with gf4: sel_pd = st.selectbox("📆 Granularitas Data", ["Bulanan", "Tahunan"], key="g_pd")
 
-# Apply global filters
-df = DF.copy()
-if sel_yr != yr_all_label: df = df[df["year"] == int(sel_yr)]
-if sel_br != "Semua Cabang": df = df[df["branch_name"] == sel_br]
-if sel_tp != "Semua Tipe": df = df[df["branch_type"] == sel_tp]
-if df.empty:
-    st.error("Data tidak ditemukan untuk kombinasi filter ini.")
-    st.stop()
+# ===================================================================
+# PAGE 1 — Pertumbuhan
+# ===================================================================
+if page == "☕ Pertumbuhan":
+    col_l, col_r = st.columns(2)
 
-# ═══════════════════════════════════════════════════════════
-#  KPI CARDS
-# ═══════════════════════════════════════════════════════════
-R = df["total_revenue"].sum()
-P = df["profit"].sum()
-M = (P / R * 100) if R else 0
-T = df["total_transactions"].sum()
+    # ── Left chart: Revenue / Profit trend ──────────────────────────
+    with col_l:
+      with st.container(border=True):
+        right_col = card_header("Tren Pendapatan Bulanan")
+        with right_col:
+            metric_sel = st.selectbox(
+                "Metrik",
+                ["Pendapatan", "Laba Bersih"],
+                key="p1_metric",
+                label_visibility="collapsed",
+            )
 
-fy = sorted(df["year"].unique())
-deltas = {}
-if len(fy) >= 2:
-    y0, y1 = fy[0], fy[-1]
-    d0, d1 = df[df.year == y0], df[df.year == y1]
-    r0, r1 = d0.total_revenue.sum(), d1.total_revenue.sum()
-    p0, p1 = d0.profit.sum(), d1.profit.sum()
-    t0, t1 = d0.total_transactions.sum(), d1.total_transactions.sum()
-    m0, m1 = ((p0/r0*100) if r0 else 0), ((p1/r1*100) if r1 else 0)
-    if r0: deltas["rev"] = (f"{abs((r1-r0)/r0*100):.1f}%", r1 >= r0)
-    if p0: deltas["prof"] = (f"{abs((p1-p0)/p0*100):.1f}%", p1 >= p0)
-    if t0: deltas["trx"] = (f"{abs((t1-t0)/t0*100):.1f}%", t1 >= t0)
-    deltas["npm"] = (f"{abs(m1-m0):.1f} pt", m1 >= m0)
+        col = "total_revenue" if metric_sel == "Pendapatan" else "profit"
+        d = (
+            filtered_df.groupby("month", as_index=False)[col]
+            .sum()
+            .sort_values("month")
+        )
+        fig = go.Figure()
+        fig.add_trace(
+            go.Scatter(
+                x=d["month"],
+                y=d[col],
+                mode="lines",
+                line=dict(color="#5C3A2E", width=3, shape="spline"),
+                fill="tozeroy",
+                fillcolor="rgba(92,58,46,.08)",
+                hovertemplate=(
+                    "<b>%{x|%b %Y}</b><br>Rp %{y:,.0f}<extra></extra>"
+                ),
+                name=metric_sel,
+            )
+        )
+        fig.update_layout(**LAYOUT, height=CH_H, showlegend=False)
+        fig.update_yaxes(
+            showgrid=True,
+            gridcolor="rgba(0,0,0,.05)",
+            tickformat=".2s",
+            title="",
+        )
+        fig.update_xaxes(
+            showgrid=False, title="", tickangle=45, tickformat="%b %Y"
+        )
+        st.plotly_chart(fig, use_container_width=True, config=CFG, theme=None)
 
-def kpi_card(label, val, dkey, icon_src):
-    d_text, d_up = deltas.get(dkey, ("", True))
-    arr = "▲" if d_up else "▼"
-    cls = "u" if d_up else "d"
-    dh = f'<p class="kpi-d {cls}">{arr} {d_text} <span style="color:#999;font-weight:400">vs periode sblmnya</span></p>' if d_text else ""
-    ih = f'<img src="{icon_src}" class="kpi-i">' if icon_src else ""
-    st.markdown(f'<div class="kpi"><p class="kpi-l">{label}</p><p class="kpi-v">{val}</p>{dh}{ih}</div>', unsafe_allow_html=True)
+        if not d.empty:
+            top_month = d.loc[d[col].idxmax(), "month"]
+            close_card(
+                f"📈 Puncak {metric_sel.lower()} terjadi pada "
+                f"<b>{top_month.strftime('%B %Y')}</b>."
+            )
+        else:
+            close_card("Data tidak tersedia.")
 
-k1, k2, k3, k4 = st.columns(4)
-with k1: kpi_card("Total Pendapatan", fmt(R), "rev", ic["money"])
-with k2: kpi_card("Total Laba Bersih", fmt(P), "prof", ic["line"])
-with k3: kpi_card("Net Profit Margin", f"{M:.2f}%", "npm", ic["pie"])
-with k4: kpi_card("Total Transaksi", f"{T/1e6:.2f} Jt" if T >= 1e6 else f"{T:,.0f}", "trx", ic["ppl"])
+    # ── Right chart: Branch composition stacked area ────────────────
+    with col_r:
+      with st.container(border=True):
+        right_col = card_header("Komposisi Cabang Teratas")
+        with right_col:
+            top_n = st.selectbox(
+                "Top N",
+                [3, 5, 8],
+                index=1,
+                key="p1_topn",
+                label_visibility="collapsed",
+            )
 
-st.write("") # slight spacer
+        top_branches = (
+            filtered_df.groupby("branch_name")["total_revenue"]
+            .sum()
+            .sort_values(ascending=False)
+            .head(top_n)
+            .index.tolist()
+        )
+        d2 = (
+            filtered_df[filtered_df["branch_name"].isin(top_branches)]
+            .groupby(["month", "branch_name"], as_index=False)["total_revenue"]
+            .sum()
+        )
+        d2["Cabang"] = d2["branch_name"].str.replace("KopiSeru ", "")
 
-# ═══════════════════════════════════════════════════════════
-#  VIEW TABS (PAGINATION: 2 Charts per tab)
-# ═══════════════════════════════════════════════════════════
-tab1, tab2, tab3 = st.tabs(["Halaman 1: Pertumbuhan", "Halaman 2: Efisiensi & Lokasi", "Halaman 3: Produk & Promo"])
-
-# ───────────────────────────────────────────────────────────
-# TAB 1
-# ───────────────────────────────────────────────────────────
-with tab1:
-    c1, c2 = st.columns(2)
-
-    with c1:
-        st.markdown('<div class="cc"><h4>Tren Pendapatan & Pertumbuhan</h4>', unsafe_allow_html=True)
-        tr = df.groupby("month")[["total_revenue"]].sum().reset_index()
-        fig1 = go.Figure(go.Scatter(x=tr["month"], y=tr["total_revenue"], mode="lines+markers", 
-                                    line=dict(color="#4E342E", width=3, shape="spline"), marker=dict(size=6), 
-                                    fill="tozeroy", fillcolor="rgba(78,52,46,0.08)", 
-                                    hovertemplate="<b>%{x|%b %Y}</b><br>Pendapatan: Rp %{y:,.0f}<extra></extra>"))
-        fig1.update_layout(**LAYOUT_BASE, height=CH, yaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.05)", tickformat=".2s"), xaxis=dict(showgrid=False))
-        st.plotly_chart(fig1, use_container_width=True, config=CFG, theme=None)
-        
-        pk = tr.loc[tr["total_revenue"].idxmax()]
-        st.markdown(f'<p class="cc-ins">💡 <b>Puncak Pendapatan:</b> Tercatat pada bulan <b>{pk["month"].strftime("%B %Y")}</b> dengan total mencapai <b>{fmt(pk["total_revenue"])}</b>.</p></div>', unsafe_allow_html=True)
-
-    with c2:
-        st.markdown('<div class="cc"><h4>Komposisi Pendapatan Cabang Teratas (Top 5)</h4>', unsafe_allow_html=True)
-        tops = df.groupby("branch_name")["total_revenue"].sum().nlargest(5).index
-        bt = df[df["branch_name"].isin(tops)].groupby(["month", "branch_name"])["total_revenue"].sum().reset_index()
-        bt["Cabang"] = bt["branch_name"].str.replace("KopiSeru ", "")
-        
-        fig2 = px.area(bt, x="month", y="total_revenue", color="Cabang", color_discrete_sequence=PAL)
-        fig2.update_layout(**LAYOUT_BASE, height=CH, legend=dict(orientation="v", y=1, x=1.02, title=""), yaxis=dict(showgrid=True, gridcolor="rgba(0,0,0,0.05)", tickformat=".2s"), xaxis=dict(showgrid=False))
+        fig2 = px.area(
+            d2,
+            x="month",
+            y="total_revenue",
+            color="Cabang",
+            color_discrete_sequence=palette,
+        )
+        fig2.update_traces(
+            hovertemplate=(
+                "<b>%{fullData.name}</b><br>"
+                "%{x|%b %Y}<br>Rp %{y:,.0f}<extra></extra>"
+            )
+        )
+        fig2.update_layout(
+            **LAYOUT,
+            height=CH_H,
+            legend=dict(
+                orientation="v",
+                y=1.02,
+                x=1.02,
+                title="",
+                font=dict(size=11),
+            ),
+        )
+        fig2.update_yaxes(
+            showgrid=True,
+            gridcolor="rgba(0,0,0,.05)",
+            tickformat=".2s",
+            title="",
+        )
+        fig2.update_xaxes(
+            showgrid=False, title="", tickangle=45, tickformat="%b %Y"
+        )
         st.plotly_chart(fig2, use_container_width=True, config=CFG, theme=None)
-        
-        best = tops[0].replace("KopiSeru ", "")
-        st.markdown(f'<p class="cc-ins">💡 <b>Cabang Andalan:</b> <b>{best}</b> memberikan kontribusi pendapatan terbesar dan paling stabil secara keseluruhan.</p></div>', unsafe_allow_html=True)
 
+        if top_branches:
+            best_branch = top_branches[0].replace("KopiSeru ", "")
+            close_card(
+                f"🏆 Cabang andalan secara konsisten adalah <b>{best_branch}</b>."
+            )
+        else:
+            close_card("Data tidak tersedia.")
 
-# ───────────────────────────────────────────────────────────
-# TAB 2
-# ───────────────────────────────────────────────────────────
-with tab2:
-    c3, c4 = st.columns(2)
+# ===================================================================
+# PAGE 2 — Lokasi & Channel
+# ===================================================================
+elif page == "📍 Lokasi & Channel":
+    col_l, col_r = st.columns(2)
 
-    with c3:
-        st.markdown('<div class="cc"><h4>Efisiensi Operasional (Pendapatan vs Profit Margin)</h4>', unsafe_allow_html=True)
-        sc = df.groupby("branch_name")[["total_revenue", "profit"]].sum().reset_index()
+    # ── Left: Revenue by branch type ────────────────────────────────
+    with col_l:
+      with st.container(border=True):
+        right_col = card_header("Pendapatan per Tipe Lokasi")
+        with right_col:
+            loc_agg = st.selectbox(
+                "Agregasi",
+                ["Total Keseluruhan", "Rata-rata per Cabang"],
+                key="p2_loc_agg",
+                label_visibility="collapsed",
+            )
+
+        agg = "sum" if loc_agg == "Total Keseluruhan" else "mean"
+        loc = (
+            filtered_df.groupby("branch_type")["total_revenue"]
+            .agg(agg)
+            .reset_index()
+            .sort_values("total_revenue", ascending=True)
+        )
+
+        fig = px.bar(
+            loc,
+            y="branch_type",
+            x="total_revenue",
+            orientation="h",
+            color="total_revenue",
+            color_continuous_scale=["#E8DCCF", "#5C3A2E"],
+        )
+        fig.update_traces(
+            hovertemplate="<b>%{y}</b><br>Rp %{x:,.0f}<extra></extra>",
+            marker_line_width=0,
+        )
+        fig.update_layout(
+            **LAYOUT, height=CH_H, coloraxis_showscale=False
+        )
+        fig.update_xaxes(
+            title="",
+            tickformat=".2s",
+            showgrid=True,
+            gridcolor="rgba(0,0,0,.05)",
+        )
+        fig.update_yaxes(title="", showgrid=False)
+        st.plotly_chart(fig, use_container_width=True, config=CFG, theme=None)
+
+        if not loc.empty:
+            close_card(
+                f"📍 Tipe lokasi <b>{loc.iloc[-1]['branch_type']}</b> "
+                "menjadi penyumbang terbesar."
+            )
+        else:
+            close_card("Data tidak tersedia.")
+
+    # ── Right: Channel donut ────────────────────────────────────────
+    with col_r:
+      with st.container(border=True):
+        right_col = card_header("Distribusi Channel Penjualan")
+        with right_col:
+            if global_branch == "Semua Cabang":
+                ch_branches = ["Semua Cabang"] + sorted(
+                    DF["branch_name"].unique().tolist()
+                )
+                ch_sel = st.selectbox(
+                    "Cabang",
+                    ch_branches,
+                    key="p2_ch_branch",
+                    label_visibility="collapsed",
+                )
+                d = DF.copy()
+                if ch_sel != "Semua Cabang":
+                    d = d[d["branch_name"] == ch_sel]
+            else:
+                st.markdown(
+                    f'<div style="text-align:right; font-size:.82rem; '
+                    f'color:#8B6B5D; font-weight:600;">{global_branch}</div>',
+                    unsafe_allow_html=True,
+                )
+                d = filtered_df.copy()
+
+        chd = pd.DataFrame(
+            {
+                "Channel": ["Dine-in", "Delivery", "Takeaway"],
+                "Persentase (%)": [
+                    d.dine_in_percent.mean(),
+                    d.delivery_percent.mean(),
+                    d.takeaway_percent.mean(),
+                ],
+            }
+        )
+
+        fig2 = px.pie(
+            chd,
+            values="Persentase (%)",
+            names="Channel",
+            hole=0.55,
+            color_discrete_sequence=palette,
+        )
+        fig2.update_traces(
+            textposition="inside",
+            textinfo="percent+label",
+            hovertemplate="<b>%{label}</b><br>%{value:.1f}%<extra></extra>",
+        )
+        fig2.update_layout(**LAYOUT, height=CH_H, showlegend=False)
+        st.plotly_chart(fig2, use_container_width=True, config=CFG, theme=None)
+
+        if not chd.empty and not chd["Persentase (%)"].isna().all():
+            dom = chd.loc[chd["Persentase (%)"].idxmax()]
+            close_card(
+                f"🎯 <b>{dom['Channel']}</b> mendominasi "
+                f"({dom['Persentase (%)']:.1f}%) perilaku pembelian."
+            )
+        else:
+            close_card("Data tidak tersedia.")
+
+# ===================================================================
+# PAGE 3 — Efisiensi & Promo
+# ===================================================================
+elif page == "⚡ Efisiensi & Promo":
+    col_l, col_r = st.columns(2)
+
+    # ── Left: Revenue vs Margin combo ───────────────────────────────
+    with col_l:
+      with st.container(border=True):
+        right_col = card_header("Efisiensi Pendapatan vs Margin")
+        with right_col:
+            grp = st.selectbox(
+                "Top N",
+                ["Top 5 Cabang", "Top 8 Cabang"],
+                key="p3_topn",
+                label_visibility="collapsed",
+            )
+
+        n_top = 5 if "5" in grp else 8
+        if global_branch != "Semua Cabang":
+            n_top = 1
+
+        sc = (
+            filtered_df.groupby("branch_name")[["total_revenue", "profit"]]
+            .sum()
+            .reset_index()
+        )
         sc["margin"] = (sc["profit"] / sc["total_revenue"] * 100).round(1)
-        sc = sc.sort_values("total_revenue", ascending=False).head(8) # Show top 8
+        sc = sc.sort_values("total_revenue", ascending=False).head(n_top)
         sc["Cabang"] = sc["branch_name"].str.replace("KopiSeru ", "")
-        
-        fig3 = go.Figure()
-        fig3.add_trace(go.Bar(x=sc["Cabang"], y=sc["total_revenue"], name="Pendapatan (Rp)", marker_color="#D7CCC8", hovertemplate="<b>%{x}</b><br>Revenue: Rp %{y:,.0f}<extra></extra>"))
-        fig3.add_trace(go.Scatter(x=sc["Cabang"], y=sc["margin"], name="Margin (%)", mode="lines+markers", yaxis="y2", line=dict(color="#4E342E", width=3), marker=dict(size=8), hovertemplate="Margin: %{y}%<extra></extra>"))
-        
-        fig3.update_layout(**LAYOUT_BASE, height=CH, showlegend=True, legend=dict(orientation="h", y=1.1, x=0.5, xanchor="center"),
-                           yaxis=dict(showgrid=False, tickformat=".2s"),
-                           yaxis2=dict(showgrid=False, overlaying="y", side="right", ticksuffix="%"),
-                           xaxis=dict(showgrid=False, tickangle=-30))
-        st.plotly_chart(fig3, use_container_width=True, config=CFG, theme=None)
-        
-        hm = sc.loc[sc["margin"].idxmax(), "Cabang"]
-        st.markdown(f'<p class="cc-ins">💡 <b>Efisiensi Tertinggi:</b> Cabang <b>{hm}</b> mampu mencetak Net Profit Margin paling efisien dibandingkan cabang lain.</p></div>', unsafe_allow_html=True)
 
-    with c4:
-        st.markdown('<div class="cc"><h4>Kontribusi Pendapatan Berdasarkan Tipe Lokasi</h4>', unsafe_allow_html=True)
-        loc = df.groupby("branch_type")["total_revenue"].sum().reset_index().sort_values("total_revenue", ascending=True)
-        
-        fig4 = px.bar(loc, y="branch_type", x="total_revenue", orientation="h", color="total_revenue", color_continuous_scale=["#E8DDD3", "#4E342E"])
-        fig4.update_layout(**LAYOUT_BASE, height=CH, coloraxis_showscale=False, yaxis=dict(title=""), xaxis=dict(title="Total Pendapatan", tickformat=".2s"))
-        st.plotly_chart(fig4, use_container_width=True, config=CFG, theme=None)
-        
-        tt = loc.iloc[-1]["branch_type"]
-        st.markdown(f'<p class="cc-ins">💡 <b>Fokus Ekspansi:</b> Tipe lokasi <b>{tt}</b> membuktikan diri sebagai pendorong pendapatan (revenue driver) yang paling solid.</p></div>', unsafe_allow_html=True)
+        fig = go.Figure()
+        fig.add_trace(
+            go.Bar(
+                x=sc["Cabang"],
+                y=sc["total_revenue"],
+                name="Pendapatan (Rp)",
+                marker_color="#E8DCCF",
+                marker_line_width=0,
+                hovertemplate=(
+                    "<b>%{x}</b><br>Revenue: Rp %{y:,.0f}<extra></extra>"
+                ),
+            )
+        )
+        fig.add_trace(
+            go.Scatter(
+                x=sc["Cabang"],
+                y=sc["margin"],
+                name="Margin (%)",
+                mode="lines+markers",
+                yaxis="y2",
+                line=dict(color="#5C3A2E", width=3),
+                marker=dict(size=9, color="#5C3A2E"),
+                hovertemplate="Margin: %{y}%<extra></extra>",
+            )
+        )
+        fig.update_layout(
+            **LAYOUT,
+            height=CH_H,
+            showlegend=True,
+            legend=dict(
+                orientation="h", y=1.14, x=0.5, xanchor="center", font_size=11
+            ),
+            yaxis=dict(showgrid=False, tickformat=".2s"),
+            yaxis2=dict(
+                showgrid=False, overlaying="y", side="right", ticksuffix="%"
+            ),
+            xaxis=dict(showgrid=False),
+        )
+        st.plotly_chart(fig, use_container_width=True, config=CFG, theme=None)
 
+        if not sc.empty:
+            hm = sc.loc[sc["margin"].idxmax(), "Cabang"]
+            close_card(
+                f"💡 Cabang <b>{hm}</b> mencetak Net Profit Margin paling efisien."
+            )
+        else:
+            close_card("Data tidak tersedia.")
 
-# ───────────────────────────────────────────────────────────
-# TAB 3
-# ───────────────────────────────────────────────────────────
-with tab3:
-    c5, c6 = st.columns(2)
+    # ── Right: Promo effectiveness ──────────────────────────────────
+    with col_r:
+      with st.container(border=True):
+        right_col = card_header("Efektivitas Tipe Promo")
+        with right_col:
+            promo_metric = st.selectbox(
+                "Metrik",
+                ["Laba Bersih", "Pendapatan"],
+                key="p3_promo_metric",
+                label_visibility="collapsed",
+            )
 
-    with c5:
-        st.markdown('<div class="cc"><h4>Distribusi Pendapatan Kategori Produk</h4>', unsafe_allow_html=True)
-        cat = df.groupby("top_selling_category")["total_revenue"].sum().reset_index()
-        
-        fig5 = px.pie(cat, values="total_revenue", names="top_selling_category", hole=0.5, color_discrete_sequence=PAL)
-        fig5.update_traces(textposition="inside", textinfo="percent", hovertemplate="<b>%{label}</b><br>Rp %{value:,.0f}<br>%{percent}<extra></extra>")
-        fig5.update_layout(**LAYOUT_BASE, height=CH, legend=dict(orientation="v", y=0.5, x=1.05))
-        st.plotly_chart(fig5, use_container_width=True, config=CFG, theme=None)
-        
-        tc = cat.loc[cat["total_revenue"].idxmax(), "top_selling_category"]
-        st.markdown(f'<p class="cc-ins">💡 <b>Kategori Unggulan:</b> Penjualan didominasi oleh kategori <b>{tc}</b>, menjadikannya prioritas untuk dijaga ketersediaannya.</p></div>', unsafe_allow_html=True)
+        pc = "profit" if promo_metric == "Laba Bersih" else "total_revenue"
+        pt = (
+            filtered_df[filtered_df["promo_active"] == True]  # noqa: E712
+            .groupby("promo_type")[pc]
+            .mean()
+            .reset_index()
+            .sort_values(pc, ascending=True)
+        )
 
-    with c6:
-        st.markdown('<div class="cc"><h4>Efektivitas Tipe Promo terhadap Laba Bersih</h4>', unsafe_allow_html=True)
-        pt = df[df["promo_active"] == True].groupby("promo_type")["profit"].mean().reset_index().sort_values("profit", ascending=True)
-        
-        fig6 = px.bar(pt, y="promo_type", x="profit", orientation="h", color="profit", color_continuous_scale=["#E8DDD3", "#4E342E"])
-        fig6.update_layout(**LAYOUT_BASE, height=CH, coloraxis_showscale=False, yaxis=dict(title=""), xaxis=dict(title="Rata-rata Laba Harian (Rp)", tickformat=".2s"))
-        st.plotly_chart(fig6, use_container_width=True, config=CFG, theme=None)
-        
+        fig2 = px.bar(
+            pt,
+            y="promo_type",
+            x=pc,
+            orientation="h",
+            color=pc,
+            color_continuous_scale=["#E8DCCF", "#5C3A2E"],
+        )
+        fig2.update_traces(marker_line_width=0)
+        fig2.update_layout(
+            **LAYOUT,
+            height=CH_H,
+            coloraxis_showscale=False,
+            yaxis=dict(title=""),
+            xaxis=dict(
+                title=f"Rata-rata {promo_metric} (Rp)", tickformat=".2s"
+            ),
+        )
+        st.plotly_chart(fig2, use_container_width=True, config=CFG, theme=None)
+
         if not pt.empty:
             bp = pt.iloc[-1]["promo_type"]
-            st.markdown(f'<p class="cc-ins">💡 <b>Strategi Pemasaran:</b> Tipe promosi <b>{bp}</b> menghasilkan rata-rata laba bersih harian tertinggi.</p></div>', unsafe_allow_html=True)
+            close_card(
+                f"🚀 Promo <b>{bp}</b> memberikan rata-rata "
+                f"{promo_metric.lower()} tertinggi."
+            )
         else:
-            st.markdown('<p class="cc-ins">💡 Tidak ada data promo aktif untuk rentang yang dipilih.</p></div>', unsafe_allow_html=True)
+            close_card("💡 Tidak ada data promo aktif.")
