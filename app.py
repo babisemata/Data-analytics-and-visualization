@@ -180,16 +180,11 @@ header[data-testid="stHeader"] {
 }
 
 /* ★ Force all selectbox text to dark brown */
-div[data-baseweb="select"] {
-    color: var(--text) !important;
-}
-div[data-baseweb="select"] * {
-    color: var(--text) !important;
-}
-div[data-baseweb="select"] .css-1dimb5e-singleValue,
-div[data-baseweb="select"] [data-testid="stMarkdownContainer"] p,
-div[data-baseweb="select"] span,
-div[data-baseweb="select"] div {
+div[data-baseweb="select"],
+div[data-baseweb="select"] *,
+.stSelectbox div[data-baseweb="select"] *,
+.stSelectbox div[data-baseweb="select"] span,
+.stSelectbox div[data-baseweb="select"] div {
     color: var(--text) !important;
 }
 /* Placeholder */
