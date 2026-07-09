@@ -643,7 +643,7 @@ if page == "☕ Pertumbuhan":
     # ── Left chart: Revenue / Profit trend ──────────────────────────
     with col_l:
         with st.container(border=True):
-            right_col = card_header("Tren Pendapatan Bulanan")
+            right_col = card_header("Tren Pendapatan Bulanan", filter_ratio=0.35)
             with right_col:
                 metric_sel = st.selectbox(
                     "Metrik",
@@ -733,7 +733,7 @@ if page == "☕ Pertumbuhan":
     # ── Right chart: Branch performance multi-line ──────────────────
     with col_r:
         with st.container(border=True):
-            right_col = card_header("Performa Penjualan per Cabang")
+            right_col = card_header("Performa Penjualan per Cabang", filter_ratio=0.60)
             with right_col:
                 fc_l, fc_r = st.columns(2)
                 with fc_l:
@@ -821,7 +821,7 @@ elif page == "📍 Lokasi & Channel":
     # ── Left: Revenue by branch type ────────────────────────────────
     with col_l:
         with st.container(border=True):
-            right_col = card_header("Pendapatan per Tipe Lokasi")
+            right_col = card_header("Pendapatan per Tipe Lokasi", filter_ratio=0.40)
             with right_col:
                 loc_agg = st.selectbox(
                     "Agregasi",
@@ -877,7 +877,7 @@ elif page == "📍 Lokasi & Channel":
     # ── Right: Channel donut ────────────────────────────────────────
     with col_r:
         with st.container(border=True):
-            right_col = card_header("Distribusi Channel Penjualan")
+            right_col = card_header("Distribusi Channel Penjualan", filter_ratio=0.40)
             with right_col:
                 ch_metric = st.selectbox(
                     "Metrik",
@@ -962,7 +962,7 @@ elif page == "⚡ Efisiensi & Promo":
     # ── Left: Biaya vs Pendapatan dual-line ─────────────────────────
     with col_l:
         with st.container(border=True):
-            right_col = card_header("Efisiensi: Biaya vs Pendapatan")
+            right_col = card_header("Efisiensi: Biaya vs Pendapatan", filter_ratio=0.35)
             with right_col:
                 eff_period = st.selectbox(
                     "Periode",
@@ -1063,7 +1063,7 @@ elif page == "⚡ Efisiensi & Promo":
     with col_r:
         with st.container(border=True):
             right_col = card_header(
-                "Distribusi Pendapatan per Kategori Produk"
+                "Distribusi Pendapatan per Kategori Produk", filter_ratio=0.40
             )
             with right_col:
                 cat_metric = st.selectbox(
